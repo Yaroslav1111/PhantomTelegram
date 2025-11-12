@@ -241,7 +241,13 @@ def _hide_console_window():
         return
     if _user32 is None or _kernel32 is None:
         return
-    if sys.stdin.isatty() and not getattr(sys, "frozen", False):
+    stdin = getattr(sys, "stdin", None)
+    if (
+        stdin is not None
+        and hasattr(stdin, "isatty")
+        and stdin.isatty()
+        and not getattr(sys, "frozen", False)
+    ):
         return
 
     hwnd = _kernel32.GetConsoleWindow()
