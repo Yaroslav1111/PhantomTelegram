@@ -325,6 +325,7 @@ def poll_stop_command(stop_event: threading.Event, q: Queue):
             chat = message.get("chat") or {}
             text = message.get("text")
             if text and text.strip() == "/stop" and str(chat.get("id")) == CHAT_ID:
+                send_key("Закрываем")
                 stop_event.set()
                 q.put(None)
                 return
