@@ -42,10 +42,10 @@ def worker(q: Queue):
     count = 0
     window_start = datetime.now()
     buffer: List[str] = []
-    last_key_time: Optional[datetime] = None
+    last_input_monotonic: Optional[float] = None
 
     def send_buffer():
-        nonlocal count, window_start, buffer
+        nonlocal count, window_start, buffer, last_input_monotonic
         if not buffer:
             return
         now = datetime.now()
@@ -61,28 +61,33 @@ def worker(q: Queue):
         send_key("".join(buffer))
         count += 1
         buffer.clear()
+        last_input_monotonic = None
 
     while True:
         try:
-            key = q.get(timeout=1)
+            key = q.get(timeout=0.5)
         except Empty:
-            if buffer and last_key_time and datetime.now() - last_key_time >= timedelta(seconds=10):
+            if (
+                buffer
+                and last_input_monotonic is not None
+                and time.monotonic() - last_input_monotonic >= 10
+            ):
                 send_buffer()
-                last_key_time = None
             continue
 
-        last_key_time = datetime.now()
+        now_monotonic = time.monotonic()
 
         if key == "{backspace}":
             if buffer:
                 buffer.pop()
+                last_input_monotonic = now_monotonic
             continue
 
         buffer.append(key)
+        last_input_monotonic = now_monotonic
 
         if key in (" ", "{return}"):
             send_buffer()
-            last_key_time = None
 
 def on_press(key):
     key_str = key_to_str(key)
