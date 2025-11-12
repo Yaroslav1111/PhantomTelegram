@@ -68,6 +68,8 @@ def _translate_keycode_windows(key_code: keyboard.KeyCode) -> Optional[str]:
 
     buffer = ctypes.create_unicode_buffer(8)
     layout = _get_active_keyboard_layout()
+
+    keyboard_state[vk] = keyboard_state[vk] | 0x80
     result = _user32.ToUnicodeEx(
         vk,
         scan_code,
