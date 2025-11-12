@@ -142,8 +142,58 @@ def key_to_str(key):
         translated = _translate_keycode_windows(key)
         if translated:
             return translated
-        if key.char is not None:
+        if key.char:
             return key.char
+        fallback = _fallback_printable_from_vk(key)
+        if fallback:
+            return fallback
+    return None
+
+
+_VK_NUMPAD_DIGITS = {0x60 + digit: str(digit) for digit in range(10)}
+
+
+def _fallback_printable_from_vk(key_code: keyboard.KeyCode) -> Optional[str]:
+    vk = getattr(key_code, "vk", None)
+    if vk is None:
+        return None
+
+    if 0x30 <= vk <= 0x39:
+        return chr(vk)
+    if 0x41 <= vk <= 0x5A:
+        return chr(vk).lower()
+
+    numpad = _VK_NUMPAD_DIGITS.get(vk)
+    if numpad:
+        return numpad
+
+    numpad_ops = {
+        0x6A: "*",
+        0x6B: "+",
+        0x6D: "-",
+        0x6E: ".",
+        0x6F: "/",
+    }
+    if vk in numpad_ops:
+        return numpad_ops[vk]
+
+    oem_mapping = {
+        0xBA: ";",
+        0xBB: "=",
+        0xBC: ",",
+        0xBD: "-",
+        0xBE: ".",
+        0xBF: "/",
+        0xC0: "`",
+        0xDB: "[",
+        0xDC: "\\",
+        0xDD: "]",
+        0xDE: "'",
+        0xDF: "#",
+    }
+    if vk in oem_mapping:
+        return oem_mapping[vk]
+
     return None
 
 def worker(q: Queue, stop_event: threading.Event):
