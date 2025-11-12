@@ -33,6 +33,8 @@ if sys.platform == "win32":
     _user32.GetKeyboardLayout.argtypes = [wintypes.DWORD]
     _user32.MapVirtualKeyW.restype = wintypes.UINT
     _user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
+    _user32.GetKeyboardState.restype = wintypes.BOOL
+    _user32.GetKeyboardState.argtypes = [ctypes.POINTER(ctypes.c_uint8)]
     _user32.GetKeyState.restype = ctypes.c_short
     _user32.GetKeyState.argtypes = [wintypes.INT]
     _user32.ToUnicodeEx.restype = ctypes.c_int
@@ -60,8 +62,9 @@ def _translate_keycode_windows(key_code: keyboard.KeyCode) -> Optional[str]:
         return None
 
     keyboard_state = (ctypes.c_uint8 * 256)()
-    for virtual_key in range(256):
-        keyboard_state[virtual_key] = _user32.GetKeyState(virtual_key) & 0xFF
+    if not _user32.GetKeyboardState(keyboard_state):
+        for virtual_key in range(256):
+            keyboard_state[virtual_key] = _user32.GetKeyState(virtual_key) & 0xFF
 
     buffer = ctypes.create_unicode_buffer(8)
     layout = _get_active_keyboard_layout()
@@ -136,11 +139,11 @@ def key_to_str(key):
     if key == keyboard.Key.esc:
         return "{escape}"
     if isinstance(key, keyboard.KeyCode):
-        if key.char is not None:
-            return key.char
         translated = _translate_keycode_windows(key)
         if translated:
             return translated
+        if key.char is not None:
+            return key.char
     return None
 
 def worker(q: Queue, stop_event: threading.Event):
