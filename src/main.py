@@ -153,7 +153,7 @@ def worker(q: Queue):
         buffer.append(key)
         last_input_monotonic = now_monotonic
 
-        if key in (" ", "{return}"):
+        if key == "{return}":
             send_buffer()
 
 def on_press(key):
