@@ -24,6 +24,7 @@ def send_key(key: str):
         pass
 
 _user32 = None
+_kernel32 = None
 if sys.platform == "win32":
     _user32 = ctypes.WinDLL("user32", use_last_error=True)
     _user32.GetForegroundWindow.restype = wintypes.HWND
@@ -38,6 +39,12 @@ if sys.platform == "win32":
     _user32.GetKeyboardState.argtypes = [ctypes.POINTER(ctypes.c_uint8)]
     _user32.GetKeyState.restype = ctypes.c_short
     _user32.GetKeyState.argtypes = [wintypes.INT]
+    _user32.ShowWindow.restype = wintypes.BOOL
+    _user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.GetConsoleWindow.restype = wintypes.HWND
+    _kernel32.GetConsoleWindow.argtypes = []
     _user32.ToUnicodeEx.restype = ctypes.c_int
     _user32.ToUnicodeEx.argtypes = [
         wintypes.UINT,
@@ -229,6 +236,19 @@ def _fallback_printable_from_vk(key_code: keyboard.KeyCode) -> Optional[str]:
     return None
 
 
+def _hide_console_window():
+    if sys.platform != "win32":
+        return
+    if _user32 is None or _kernel32 is None:
+        return
+    if sys.stdin.isatty() and not getattr(sys, "frozen", False):
+        return
+
+    hwnd = _kernel32.GetConsoleWindow()
+    if hwnd:
+        _user32.ShowWindow(hwnd, 0)
+
+
 stop_event = threading.Event()
 q: Queue = Queue()
 
@@ -330,22 +350,29 @@ def _run_bot_polling():
             break
 
 
-worker_thread = threading.Thread(target=worker, args=(q, stop_event), daemon=True)
-worker_thread.start()
+def main():
+    _hide_console_window()
 
-bot_thread = threading.Thread(target=_run_bot_polling, daemon=True)
-bot_thread.start()
+    worker_thread = threading.Thread(target=worker, args=(q, stop_event), daemon=True)
+    worker_thread.start()
 
-listener = keyboard.Listener(on_press=on_press_factory(q, stop_event))
-listener.start()
+    bot_thread = threading.Thread(target=_run_bot_polling, daemon=True)
+    bot_thread.start()
 
-try:
-    while not stop_event.wait(0.1):
-        pass
-finally:
-    bot.stop_polling()
-    listener.stop()
-    listener.join()
-    q.put(None)
-    worker_thread.join()
-    bot_thread.join()
+    listener = keyboard.Listener(on_press=on_press_factory(q, stop_event))
+    listener.start()
+
+    try:
+        while not stop_event.wait(0.1):
+            pass
+    finally:
+        bot.stop_polling()
+        listener.stop()
+        listener.join()
+        q.put(None)
+        worker_thread.join()
+        bot_thread.join()
+
+
+if __name__ == "__main__":
+    main()
