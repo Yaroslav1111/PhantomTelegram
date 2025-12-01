@@ -3,7 +3,6 @@
 Run this script on the target server. It listens for a single client,
 prints the received message, sends a confirmation response, and exits.
 """
-from __future__ import annotations
 
 import argparse
 import socket

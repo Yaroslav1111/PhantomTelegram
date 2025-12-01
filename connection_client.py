@@ -3,7 +3,6 @@
 Run this script on your local machine. It connects to the server, sends a
 short message, waits for a reply, and prints the result.
 """
-from __future__ import annotations
 
 import argparse
 import socket
