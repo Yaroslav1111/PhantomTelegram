@@ -52,6 +52,20 @@ To bundle the logger into a background Windows executable that runs without a co
    ```
 3. The generated `dist/PhantomTelegram.exe` starts without appearing on the taskbar or showing a console window.
 
+## Quick Connectivity Check (Server ↔ Client)
+
+Use the lightweight TCP scripts to verify that your workstation can reach a server:
+
+1. **Start the server on the target machine** (adjust the port if needed):
+   ```bash
+   python connection_server.py --port 9000
+   ```
+2. **Run the client on your local machine**, pointing it at the server's IP/DNS name:
+   ```bash
+   python connection_client.py 203.0.113.10 --port 9000 --message "Test from my PC"
+   ```
+3. The client prints the server's acknowledgement if the connection succeeds. If it fails, check firewall settings or that the server port is reachable.
+
 ## License
 **PhantomTelegram** is licensed under [The Unlicense](LICENSE), so feel free to use, modify, and distribute it as you like.
 
