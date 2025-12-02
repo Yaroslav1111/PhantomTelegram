@@ -1,21 +1,23 @@
 import asyncio
+import contextlib
 import json
+import os
 import threading
 import time
 import tkinter as tk
 from tkinter import ttk
 from typing import Optional
 
-import contextlib
-
+from dotenv import load_dotenv
 from pynput import keyboard
 from telethon import TelegramClient, events
 
-# Настройте эти параметры один раз перед запуском.
-API_ID = 0  # int из my.telegram.org/apps
-API_HASH = ""  # строка из my.telegram.org/apps
-SESSION_NAME = "client_session"  # имя файла сессии Telethon
-SERVER_BOT_USERNAME = ""  # юзернейм сервер-бота без @
+load_dotenv()
+
+API_ID = int(os.getenv("LOGGER_API_ID", "0"))
+API_HASH = os.getenv("LOGGER_API_HASH", "")
+SESSION_NAME = os.getenv("LOGGER_SESSION_NAME", "client_session")
+SERVER_BOT_USERNAME = os.getenv("LOGGER_SERVER_BOT_USERNAME", "")
 
 
 class TelegramKeyMirrorClient:
@@ -78,7 +80,7 @@ class TelegramKeyMirrorClient:
         if self.listener_thread and self.listener_thread.is_alive():
             return
         if API_ID == 0 or not API_HASH:
-            self.status_var.set("Заполните API_ID и API_HASH в client.py")
+            self.status_var.set("Заполните LOGGER_API_ID и LOGGER_API_HASH в .env")
             return
 
         self.stop_event.clear()
@@ -114,26 +116,33 @@ class TelegramKeyMirrorClient:
         if not key:
             return
         if len(key) == 1:
+            if key == "\b":
+                mapped = keyboard.Key.backspace
+            elif key == "\n":
+                mapped = keyboard.Key.enter
+            elif key == "\t":
+                mapped = keyboard.Key.tab
+            else:
+                mapped = key
+
+            if isinstance(mapped, keyboard.Key):
+                self.controller.press(mapped)
+                self.controller.release(mapped)
+                return
+
             self.controller.press(key)
             self.controller.release(key)
             return
 
-        mapping = {
-            "{return}": keyboard.Key.enter,
-            "{backspace}": keyboard.Key.backspace,
-            "{tab}": keyboard.Key.tab,
-            "{escape}": keyboard.Key.esc,
-            "{caps_lock}": keyboard.Key.caps_lock,
-            " ": keyboard.Key.space,
-        }
-        mapped = mapping.get(key)
+        if key == "{escape}":
+            mapped = keyboard.Key.esc
+        else:
+            mapped = None
         if mapped:
             self.controller.press(mapped)
             self.controller.release(mapped)
 
     def _handle_payload(self, payload: dict):
-        if payload.get("type") != "key":
-            return
         key = payload.get("key", "")
         ts = payload.get("ts")
         if ts is not None:
@@ -142,6 +151,14 @@ class TelegramKeyMirrorClient:
         self._append_log(display)
         if self.copy_enabled.get():
             self._apply_key(key)
+
+    def _handle_plain_key(self, text: str, server_ts: Optional[float]):
+        if server_ts is not None:
+            self.latency_var.set(f"{(time.time() - server_ts) * 1000:.1f} мс")
+        display = text.replace("\n", "\\n")
+        self._append_log(display)
+        if self.copy_enabled.get():
+            self._apply_key(text)
 
     async def _handle_raw_message(self, event):
         sender = await event.get_sender()
@@ -156,7 +173,10 @@ class TelegramKeyMirrorClient:
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
-            self.root.after(0, self._append_log, text)
+            server_ts = None
+            if event.message and event.message.date:
+                server_ts = event.message.date.timestamp()
+            self.root.after(0, self._handle_plain_key, text, server_ts)
             return
         self.root.after(0, self._handle_payload, payload)
 

@@ -1,3 +1,4 @@
 pynput
 pyTelegramBotAPI
 telethon
+python-dotenv

