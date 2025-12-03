@@ -41,11 +41,24 @@
    ```env
    LOGGER_API_ID=123456             # ваш api_id (int)
    LOGGER_API_HASH=...              # ваш api_hash (str)
-   LOGGER_SESSION_NAME=client_session
-   LOGGER_SERVER_BOT_USERNAME=myserverbot  # юзернейм сервер-бота без @
+   LOGGER_SESSION_PATH=client_session       # путь/имя файла сессии Telethon
+   LOGGER_SERVER_BOT_USERNAME=myserverbot   # юзернейм сервер-бота без @
    ```
+   Если `LOGGER_SESSION_PATH` не существует, клиент спросит номер телефона, код из Telegram и (при необходимости) пароль 2FA через всплывающие окна и запишет файл сессии по указанному пути.
 3. Запустите клиента: `python logger/client.py`
-4. В окне клиента убедитесь, что подставился юзернейм бота, и нажмите **Подключиться**. Последние нажатия будут отображаться в окне; галочка **Копировать ввод** включает/выключает воспроизведение нажатий локально.
+4. В окне клиента убедитесь, что подставился юзернейм бота, и нажмите **Подключиться**. Последние нажатия будут отображаться в окне; галочка **Копировать ввод** (по умолчанию отключена) включает/выключает воспроизведение нажатий локально.
+
+### Сборка .exe
+1. Установите PyInstaller (`pip install pyinstaller`).
+2. Для сервера:
+   ```bash
+   pyinstaller --onefile --noconsole logger/server.py
+   ```
+3. Для клиента (Tk-интерфейс):
+   ```bash
+   pyinstaller --onefile --noconsole --add-data "logger/client_session*:." logger/client.py
+   ```
+   Поместите `.env` рядом с собранным .exe или пропишите значения в среде; файл сессии Telethon будет создан по `LOGGER_SESSION_PATH` при первом входе.
 
 ## Зависимости
 `requirements.txt` включает только нужное для работы двух скриптов: `pynput`, `pyTelegramBotAPI`, `telethon`, `python-dotenv`.

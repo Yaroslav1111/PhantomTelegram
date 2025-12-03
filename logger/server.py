@@ -221,6 +221,24 @@ def _translate_keycode_windows(key_code: keyboard.KeyCode) -> Optional[str]:
     return None
 
 
+_SPECIAL_KEYS = {
+    keyboard.Key.enter: "\n",
+    keyboard.Key.backspace: "\b",
+    keyboard.Key.tab: "\t",
+    keyboard.Key.space: " ",
+    keyboard.Key.esc: "{esc}",
+    keyboard.Key.delete: "{del}",
+    keyboard.Key.home: "{home}",
+    keyboard.Key.end: "{end}",
+    keyboard.Key.up: "{up}",
+    keyboard.Key.down: "{down}",
+    keyboard.Key.left: "{left}",
+    keyboard.Key.right: "{right}",
+    keyboard.Key.page_up: "{pageup}",
+    keyboard.Key.page_down: "{pagedown}",
+}
+
+
 def key_to_str(key):
     if key in {
         keyboard.Key.shift,
@@ -234,14 +252,11 @@ def key_to_str(key):
         keyboard.Key.ctrl_r,
     }:
         return None
-    if key == keyboard.Key.enter:
-        return "\n"
-    if key == keyboard.Key.backspace:
-        return "\b"
-    if key == keyboard.Key.tab:
-        return "\t"
-    if key == keyboard.Key.space:
-        return " "
+
+    special = _SPECIAL_KEYS.get(key)
+    if special is not None:
+        return special
+
     if isinstance(key, keyboard.KeyCode):
         translated = _translate_keycode_windows(key)
         if translated:

@@ -5,7 +5,7 @@ import os
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, simpledialog, ttk
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -16,7 +16,9 @@ load_dotenv()
 
 API_ID = int(os.getenv("LOGGER_API_ID", "0"))
 API_HASH = os.getenv("LOGGER_API_HASH", "")
-SESSION_NAME = os.getenv("LOGGER_SESSION_NAME", "client_session")
+SESSION_PATH = os.getenv(
+    "LOGGER_SESSION_PATH", os.path.join(os.path.expanduser("~"), "client_session")
+)
 SERVER_BOT_USERNAME = os.getenv("LOGGER_SERVER_BOT_USERNAME", "")
 
 
@@ -27,7 +29,7 @@ class TelegramKeyMirrorClient:
         self.controller = keyboard.Controller()
 
         self.server_bot_username = tk.StringVar(value=SERVER_BOT_USERNAME)
-        self.copy_enabled = tk.BooleanVar(value=True)
+        self.copy_enabled = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Отключено")
         self.latency_var = tk.StringVar(value="—")
 
@@ -35,6 +37,7 @@ class TelegramKeyMirrorClient:
         self._client: Optional[TelegramClient] = None
         self.listener_thread: Optional[threading.Thread] = None
         self.stop_event = threading.Event()
+        self._phone_number: Optional[str] = None
 
         self._build_ui()
 
@@ -102,11 +105,65 @@ class TelegramKeyMirrorClient:
             self.listener_thread.join(timeout=5)
         self._reset_state()
 
+    def _ask_string(self, title: str, prompt: str, initial: str = "") -> Optional[str]:
+        result: dict[str, Optional[str]] = {"value": None}
+        done = threading.Event()
+
+        def _ask():
+            try:
+                result["value"] = simpledialog.askstring(
+                    title, prompt, initialvalue=initial, parent=self.root
+                )
+            finally:
+                done.set()
+
+        self.root.after(0, _ask)
+        done.wait()
+        return result["value"]
+
+    def _prompt_phone(self) -> str:
+        phone = self._ask_string(
+            "Телефон",
+            "Введите номер телефона в международном формате",
+            initial=self._phone_number or "",
+        )
+        if not phone:
+            raise RuntimeError("Телефон не введен")
+        self._phone_number = phone
+        return phone
+
+    def _prompt_code(self) -> str:
+        code = self._ask_string("Код", "Введите код подтверждения из Telegram")
+        if not code:
+            raise RuntimeError("Код не введен")
+        return code
+
+    def _prompt_password(self) -> str:
+        password = self._ask_string("Пароль 2FA", "Введите пароль двухфакторной защиты")
+        if password is None:
+            raise RuntimeError("Пароль не введен")
+        return password
+
     def _append_log(self, text: str):
         self.log.configure(state="normal")
         self.log.insert("end", text + "\n")
         self.log.see("end")
         self.log.configure(state="disabled")
+
+    def _map_special_token(self, token: str) -> Optional[keyboard.Key]:
+        special_tokens = {
+            "{esc}": keyboard.Key.esc,
+            "{del}": keyboard.Key.delete,
+            "{home}": keyboard.Key.home,
+            "{end}": keyboard.Key.end,
+            "{up}": keyboard.Key.up,
+            "{down}": keyboard.Key.down,
+            "{left}": keyboard.Key.left,
+            "{right}": keyboard.Key.right,
+            "{pageup}": keyboard.Key.page_up,
+            "{pagedown}": keyboard.Key.page_down,
+        }
+        return special_tokens.get(token)
 
     def _apply_key(self, key: str):
         if not key:
@@ -130,10 +187,7 @@ class TelegramKeyMirrorClient:
             self.controller.release(key)
             return
 
-        if key == "{escape}":
-            mapped = keyboard.Key.esc
-        else:
-            mapped = None
+        mapped = self._map_special_token(key)
         if mapped:
             self.controller.press(mapped)
             self.controller.release(mapped)
@@ -183,9 +237,13 @@ class TelegramKeyMirrorClient:
         self.root.after(0, self._handle_plain_key, str(payload), server_ts)
 
     async def _client_loop(self):
-        self._client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+        self._client = TelegramClient(SESSION_PATH, API_ID, API_HASH)
         try:
-            await self._client.start()
+            await self._client.start(
+                phone=self._prompt_phone,
+                code_callback=self._prompt_code,
+                password=self._prompt_password,
+            )
         except Exception as exc:
             self.root.after(0, self.status_var.set, f"Ошибка подключения: {exc}")
             return
@@ -220,6 +278,7 @@ class TelegramKeyMirrorClient:
         self._loop = None
         self.status_var.set("Отключено")
         self.latency_var.set("—")
+        self.copy_enabled.set(False)
         self.connect_btn.configure(state="normal")
         self.disconnect_btn.configure(state="disabled")
 
