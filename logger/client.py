@@ -94,17 +94,13 @@ class TelegramKeyMirrorClient:
         self.stop_event.set()
         loop = self._loop
         client = self._client
-        if loop and client:
-            asyncio.run_coroutine_threadsafe(client.disconnect(), loop)
+        if loop and client and loop.is_running():
+            maybe_coro = client.disconnect()
+            if asyncio.iscoroutine(maybe_coro):
+                asyncio.run_coroutine_threadsafe(maybe_coro, loop)
         if self.listener_thread:
             self.listener_thread.join(timeout=5)
-        self.listener_thread = None
-        self._client = None
-        self._loop = None
-        self.status_var.set("Отключено")
-        self.latency_var.set("—")
-        self.connect_btn.configure(state="normal")
-        self.disconnect_btn.configure(state="disabled")
+        self._reset_state()
 
     def _append_log(self, text: str):
         self.log.configure(state="normal")
@@ -142,9 +138,9 @@ class TelegramKeyMirrorClient:
             self.controller.press(mapped)
             self.controller.release(mapped)
 
-    def _handle_payload(self, payload: dict):
+    def _handle_payload(self, payload: dict, server_ts: Optional[float] = None):
         key = payload.get("key", "")
-        ts = payload.get("ts")
+        ts = payload.get("ts", server_ts)
         if ts is not None:
             self.latency_var.set(f"{(time.time() - ts) * 1000:.1f} мс")
         display = key.replace("\n", "\\n")
@@ -170,15 +166,21 @@ class TelegramKeyMirrorClient:
             return
 
         text = event.raw_text or ""
+        server_ts = None
+        if event.message and event.message.date:
+            server_ts = event.message.date.timestamp()
+
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
-            server_ts = None
-            if event.message and event.message.date:
-                server_ts = event.message.date.timestamp()
             self.root.after(0, self._handle_plain_key, text, server_ts)
             return
-        self.root.after(0, self._handle_payload, payload)
+
+        if isinstance(payload, dict):
+            self.root.after(0, self._handle_payload, payload, server_ts)
+            return
+
+        self.root.after(0, self._handle_plain_key, str(payload), server_ts)
 
     async def _client_loop(self):
         self._client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
@@ -196,7 +198,8 @@ class TelegramKeyMirrorClient:
             while not self.stop_event.is_set():
                 await asyncio.sleep(0.2)
         finally:
-            await self._client.disconnect()
+            with contextlib.suppress(Exception):
+                await self._client.disconnect()
             run_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await run_task
@@ -209,7 +212,16 @@ class TelegramKeyMirrorClient:
             loop.run_until_complete(self._client_loop())
         finally:
             loop.close()
-            self.root.after(0, self.disconnect)
+            self.root.after(0, self._reset_state)
+
+    def _reset_state(self):
+        self.listener_thread = None
+        self._client = None
+        self._loop = None
+        self.status_var.set("Отключено")
+        self.latency_var.set("—")
+        self.connect_btn.configure(state="normal")
+        self.disconnect_btn.configure(state="disabled")
 
 
 if __name__ == "__main__":
