@@ -1,3 +1,4 @@
+import contextlib
 import ctypes
 import os
 import sys
@@ -26,6 +27,15 @@ stop_event = threading.Event()
 send_queue: Queue[str] = Queue()
 
 
+def _request_stop():
+    """Signal every loop to exit and wake blocking calls."""
+    if stop_event.is_set():
+        return
+    stop_event.set()
+    # Wake the queue worker in case it's blocked on get()
+    send_queue.put(None)
+
+
 @bot.message_handler(commands=["start"])
 def start(message):
     chat = getattr(message, "chat", None)
@@ -41,8 +51,7 @@ def stop(message):
         return
     if stop_event.is_set():
         return
-    stop_event.set()
-    send_queue.put(None)
+    _request_stop()
     bot.stop_polling()
     bot.send_message(chat.id, "Останавливаем сервер")
 
@@ -288,11 +297,14 @@ def _send_worker():
             payload = send_queue.get(timeout=0.5)
         except Empty:
             continue
+
         if payload is None:
             break
+
         try:
             bot.send_message(TARGET_USER_ID, payload)
         except Exception:
+            # Avoid tight retry loops if Telegram is temporarily unavailable.
             time.sleep(1)
 
 
@@ -307,15 +319,20 @@ def on_press(key):
 
 
 def _run_bot_polling():
+    # Keep polling in a loop with timeouts so we can react to stop_event quickly
     while not stop_event.is_set():
         try:
-            bot.infinity_polling(timeout=10, long_polling_timeout=30)
+            bot.polling(none_stop=False, timeout=10, long_polling_timeout=10)
         except Exception:
             if stop_event.is_set():
                 break
             time.sleep(3)
         else:
-            break
+            if not stop_event.is_set():
+                # Short pause before retrying in case polling exited unexpectedly
+                time.sleep(0.5)
+            else:
+                break
 
 
 def main():
@@ -334,15 +351,16 @@ def main():
         while not stop_event.wait(0.2):
             pass
     except KeyboardInterrupt:
-        stop_event.set()
-        send_queue.put(None)
+        _request_stop()
     finally:
-        listener.stop()
-        listener.join()
+        _request_stop()
+        with contextlib.suppress(Exception):
+            listener.stop()
+        listener.join(timeout=3)
         bot.stop_polling()
-        bot_thread.join()
+        bot_thread.join(timeout=5)
         send_queue.put(None)
-        sender.join()
+        sender.join(timeout=5)
 
 
 if __name__ == "__main__":
