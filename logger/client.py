@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import os
+from pathlib import Path
 import threading
 import time
 import tkinter as tk
@@ -16,9 +17,8 @@ load_dotenv()
 
 API_ID = int(os.getenv("LOGGER_API_ID", "0"))
 API_HASH = os.getenv("LOGGER_API_HASH", "")
-SESSION_PATH = os.getenv(
-    "LOGGER_SESSION_PATH", os.path.join(os.path.expanduser("~"), "client_session")
-)
+DEFAULT_SESSION_PATH = Path(__file__).resolve().parent / "client_session"
+SESSION_PATH = os.getenv("LOGGER_SESSION_PATH", str(DEFAULT_SESSION_PATH))
 SERVER_BOT_USERNAME = os.getenv("LOGGER_SERVER_BOT_USERNAME", "")
 
 
