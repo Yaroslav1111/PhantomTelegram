@@ -35,6 +35,7 @@ class TelegramKeyMirrorClient:
         self.health_status = tk.StringVar(value="Не отвечает")
         self._last_pong = 0.0
         self._ping_job: Optional[str] = None
+        self._health_job: Optional[str] = None
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._client: Optional[TelegramClient] = None
@@ -103,6 +104,7 @@ class TelegramKeyMirrorClient:
         self.status_var.set("Подключаемся…")
         self.connect_btn.configure(state="disabled")
         self.disconnect_btn.configure(state="normal")
+        self._schedule_health_check()
 
     def disconnect(self):
         self.stop_event.set()
@@ -174,23 +176,27 @@ class TelegramKeyMirrorClient:
         self._update_health_light()
 
     def _send_ping(self):
+        if not self.stop_event.is_set():
+            if self._client and self._loop and self._loop.is_running():
+                target = self.server_bot_username.get().strip()
+                if target:
+
+                    async def _send():
+                        try:
+                            await self._client.send_message(target, "/t")
+                        except Exception:
+                            pass
+
+                    asyncio.run_coroutine_threadsafe(_send(), self._loop)
+
+            self._update_health_light()
+            self._ping_job = self.root.after(10000, self._send_ping)
+
+    def _schedule_health_check(self):
         if self.stop_event.is_set():
             return
-        if not self._client or not self._loop or not self._loop.is_running():
-            return
-        target = self.server_bot_username.get().strip()
-        if not target:
-            return
-
-        async def _send():
-            try:
-                await self._client.send_message(target, "/t")
-            except Exception:
-                pass
-
-        asyncio.run_coroutine_threadsafe(_send(), self._loop)
         self._update_health_light()
-        self._ping_job = self.root.after(10000, self._send_ping)
+        self._health_job = self.root.after(1000, self._schedule_health_check)
 
     def _map_special_token(self, token: str) -> Optional[keyboard.Key]:
         special_tokens = {
@@ -346,6 +352,10 @@ class TelegramKeyMirrorClient:
             with contextlib.suppress(Exception):
                 self.root.after_cancel(self._ping_job)
         self._ping_job = None
+        if self._health_job is not None:
+            with contextlib.suppress(Exception):
+                self.root.after_cancel(self._health_job)
+        self._health_job = None
         self._last_pong = 0.0
         self.listener_thread = None
         self._client = None
