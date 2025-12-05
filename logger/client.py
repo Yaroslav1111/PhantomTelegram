@@ -68,6 +68,9 @@ class TelegramKeyMirrorClient:
         )
         self.copy_check.grid(column=0, row=2, columnspan=2, sticky="w", pady=(8, 0))
 
+        self.test_btn = ttk.Button(frame, text="Тест", command=self.send_test)
+        self.test_btn.grid(column=2, row=2, columnspan=2, sticky="e", pady=(8, 0))
+
         ttk.Label(frame, text="Последние нажатия:").grid(
             column=0, row=3, columnspan=4, sticky="w", pady=(10, 2)
         )
@@ -87,6 +90,7 @@ class TelegramKeyMirrorClient:
             return
 
         self.stop_event.clear()
+        self.copy_enabled.set(False)
         self.listener_thread = threading.Thread(target=self._run_client_loop, daemon=True)
         self.listener_thread.start()
         self.status_var.set("Подключаемся…")
@@ -272,6 +276,29 @@ class TelegramKeyMirrorClient:
             loop.close()
             self.root.after(0, self._reset_state)
 
+    def send_test(self):
+        """Send /start to the bot to verify connectivity."""
+        if not self._client or not self._loop or not self._loop.is_running():
+            messagebox.showinfo("Тест", "Сначала подключитесь к боту")
+            return
+
+        target = self.server_bot_username.get().strip()
+        if not target:
+            messagebox.showinfo("Тест", "Укажите bot username")
+            return
+
+        async def _send():
+            try:
+                await self._client.send_message(target, "/start")
+            except Exception as exc:  # pragma: no cover - UI feedback only
+                self.root.after(0, self.status_var.set, f"Ошибка теста: {exc}")
+
+        asyncio.run_coroutine_threadsafe(_send(), self._loop)
+
+    def close_app(self):
+        self.disconnect()
+        self.root.destroy()
+
     def _reset_state(self):
         self.listener_thread = None
         self._client = None
@@ -286,5 +313,5 @@ class TelegramKeyMirrorClient:
 if __name__ == "__main__":
     tk_root = tk.Tk()
     app = TelegramKeyMirrorClient(tk_root)
-    tk_root.protocol("WM_DELETE_WINDOW", app.disconnect)
+    tk_root.protocol("WM_DELETE_WINDOW", app.close_app)
     tk_root.mainloop()
