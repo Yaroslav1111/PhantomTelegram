@@ -32,6 +32,7 @@ class TelegramKeyMirrorClient:
         self.copy_enabled = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Отключено")
         self.latency_var = tk.StringVar(value="—")
+        self.health_status = tk.StringVar(value="Не отвечает")
         self._last_pong = 0.0
         self._ping_job: Optional[str] = None
 
@@ -62,10 +63,11 @@ class TelegramKeyMirrorClient:
 
         ttk.Label(frame, text="Статус:").grid(column=0, row=1, sticky="w", pady=(8, 0))
         ttk.Label(frame, textvariable=self.status_var).grid(column=1, row=1, sticky="w")
-        self.health_light = tk.Label(frame, width=2, background="grey", relief="sunken")
-        self.health_light.grid(column=2, row=1, sticky="e", padx=(8, 4))
-        ttk.Label(frame, text="Задержка:").grid(column=2, row=1, sticky="e", pady=(8, 0))
-        ttk.Label(frame, textvariable=self.latency_var).grid(column=3, row=1, sticky="w")
+        ttk.Label(frame, textvariable=self.health_status, width=12).grid(
+            column=2, row=1, sticky="e", padx=(8, 4)
+        )
+        ttk.Label(frame, text="Задержка:").grid(column=3, row=1, sticky="e", pady=(8, 0))
+        ttk.Label(frame, textvariable=self.latency_var).grid(column=4, row=1, sticky="w")
 
         self.copy_check = ttk.Checkbutton(
             frame, text="Копировать ввод", variable=self.copy_enabled
@@ -73,17 +75,18 @@ class TelegramKeyMirrorClient:
         self.copy_check.grid(column=0, row=2, columnspan=2, sticky="w", pady=(8, 0))
 
         self.test_btn = ttk.Button(frame, text="Тест", command=self.send_test)
-        self.test_btn.grid(column=2, row=2, columnspan=2, sticky="e", pady=(8, 0))
+        self.test_btn.grid(column=2, row=2, columnspan=3, sticky="e", pady=(8, 0))
 
         ttk.Label(frame, text="Последние нажатия:").grid(
             column=0, row=3, columnspan=4, sticky="w", pady=(10, 2)
         )
         self.log = tk.Text(frame, height=10, width=60, state="disabled")
-        self.log.grid(column=0, row=4, columnspan=4, sticky="nsew")
+        self.log.grid(column=0, row=4, columnspan=5, sticky="nsew")
         frame.columnconfigure(0, weight=1)
         frame.columnconfigure(1, weight=1)
         frame.columnconfigure(2, weight=0)
         frame.columnconfigure(3, weight=0)
+        frame.columnconfigure(4, weight=0)
         frame.rowconfigure(4, weight=1)
 
     def connect(self):
@@ -159,12 +162,12 @@ class TelegramKeyMirrorClient:
         self.log.configure(state="disabled")
 
     def _update_health_light(self):
-        color = "grey"
+        status_text = "Не отвечает"
         if self._last_pong:
             age = time.time() - self._last_pong
             if age < 10:
-                color = "green"
-        self.health_light.configure(background=color)
+                status_text = "Отвечает"
+        self.health_status.set(status_text)
 
     def _record_pong(self, server_ts: Optional[float]):
         self._last_pong = server_ts or time.time()
