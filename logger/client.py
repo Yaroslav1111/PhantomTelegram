@@ -177,6 +177,7 @@ class TelegramKeyMirrorClient:
 
     def _send_ping(self):
         if not self.stop_event.is_set():
+            self._last_pong = 0.0
             if self._client and self._loop and self._loop.is_running():
                 target = self.server_bot_username.get().strip()
                 if target:
@@ -334,6 +335,8 @@ class TelegramKeyMirrorClient:
         if not target:
             messagebox.showinfo("Тест", "Укажите bot username")
             return
+        self._last_pong = 0.0
+        self._update_health_light()
 
         async def _send():
             try:
