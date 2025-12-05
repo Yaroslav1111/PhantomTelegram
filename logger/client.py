@@ -32,6 +32,8 @@ class TelegramKeyMirrorClient:
         self.copy_enabled = tk.BooleanVar(value=False)
         self.status_var = tk.StringVar(value="Отключено")
         self.latency_var = tk.StringVar(value="—")
+        self._last_pong = 0.0
+        self._ping_job: Optional[str] = None
 
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._client: Optional[TelegramClient] = None
@@ -60,6 +62,8 @@ class TelegramKeyMirrorClient:
 
         ttk.Label(frame, text="Статус:").grid(column=0, row=1, sticky="w", pady=(8, 0))
         ttk.Label(frame, textvariable=self.status_var).grid(column=1, row=1, sticky="w")
+        self.health_light = tk.Label(frame, width=2, background="grey", relief="sunken")
+        self.health_light.grid(column=2, row=1, sticky="e", padx=(8, 4))
         ttk.Label(frame, text="Задержка:").grid(column=2, row=1, sticky="e", pady=(8, 0))
         ttk.Label(frame, textvariable=self.latency_var).grid(column=3, row=1, sticky="w")
 
@@ -154,8 +158,40 @@ class TelegramKeyMirrorClient:
         self.log.see("end")
         self.log.configure(state="disabled")
 
+    def _update_health_light(self):
+        color = "grey"
+        if self._last_pong:
+            age = time.time() - self._last_pong
+            if age < 10:
+                color = "green"
+        self.health_light.configure(background=color)
+
+    def _record_pong(self, server_ts: Optional[float]):
+        self._last_pong = server_ts or time.time()
+        self._update_health_light()
+
+    def _send_ping(self):
+        if self.stop_event.is_set():
+            return
+        if not self._client or not self._loop or not self._loop.is_running():
+            return
+        target = self.server_bot_username.get().strip()
+        if not target:
+            return
+
+        async def _send():
+            try:
+                await self._client.send_message(target, "/t")
+            except Exception:
+                pass
+
+        asyncio.run_coroutine_threadsafe(_send(), self._loop)
+        self._update_health_light()
+        self._ping_job = self.root.after(10000, self._send_ping)
+
     def _map_special_token(self, token: str) -> Optional[keyboard.Key]:
         special_tokens = {
+            "{backspace}": keyboard.Key.backspace,
             "{esc}": keyboard.Key.esc,
             "{del}": keyboard.Key.delete,
             "{home}": keyboard.Key.home,
@@ -173,9 +209,7 @@ class TelegramKeyMirrorClient:
         if not key:
             return
         if len(key) == 1:
-            if key == "\b":
-                mapped = keyboard.Key.backspace
-            elif key == "\n":
+            if key == "\n":
                 mapped = keyboard.Key.enter
             elif key == "\t":
                 mapped = keyboard.Key.tab
@@ -228,6 +262,10 @@ class TelegramKeyMirrorClient:
         if event.message and event.message.date:
             server_ts = event.message.date.timestamp()
 
+        if text.strip() == "/t":
+            self.root.after(0, self._record_pong, server_ts)
+            return
+
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
@@ -254,6 +292,7 @@ class TelegramKeyMirrorClient:
 
         self._client.add_event_handler(self._handle_raw_message, events.NewMessage)
         self.root.after(0, self.status_var.set, "Подключено")
+        self.root.after(0, self._send_ping)
         run_task = asyncio.create_task(self._client.run_until_disconnected())
 
         try:
@@ -277,7 +316,7 @@ class TelegramKeyMirrorClient:
             self.root.after(0, self._reset_state)
 
     def send_test(self):
-        """Send /start to the bot to verify connectivity."""
+        """Send /t to the bot to verify connectivity."""
         if not self._client or not self._loop or not self._loop.is_running():
             messagebox.showinfo("Тест", "Сначала подключитесь к боту")
             return
@@ -289,7 +328,7 @@ class TelegramKeyMirrorClient:
 
         async def _send():
             try:
-                await self._client.send_message(target, "/start")
+                await self._client.send_message(target, "/t")
             except Exception as exc:  # pragma: no cover - UI feedback only
                 self.root.after(0, self.status_var.set, f"Ошибка теста: {exc}")
 
@@ -300,6 +339,11 @@ class TelegramKeyMirrorClient:
         self.root.destroy()
 
     def _reset_state(self):
+        if self._ping_job is not None:
+            with contextlib.suppress(Exception):
+                self.root.after_cancel(self._ping_job)
+        self._ping_job = None
+        self._last_pong = 0.0
         self.listener_thread = None
         self._client = None
         self._loop = None
@@ -308,6 +352,7 @@ class TelegramKeyMirrorClient:
         self.copy_enabled.set(False)
         self.connect_btn.configure(state="normal")
         self.disconnect_btn.configure(state="disabled")
+        self._update_health_light()
 
 
 if __name__ == "__main__":

