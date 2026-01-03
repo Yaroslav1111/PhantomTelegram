@@ -1,11 +1,11 @@
 # PhantomTelegram
 
-**PhantomTelegram** is a lightweight keylogger written in Python that relays captured keystrokes to a Telegram bot.
+**PhantomTelegram** is a lightweight Windows control bot written in Python (Telethon) that lets you управляйте питанием ПК через Telegram.
 
 ## Features
-- Captures keystrokes and processes them.
-- Sends the captured input to a Telegram chat in near real-time.
-- Uses rate limiting to prevent spamming the Telegram bot API.
+- Выключение/перезагрузка ПК.
+- Сон, гибернация, блокировка.
+- Отключение экрана и таймер выключения.
 
 ## Getting Started
 1. **Clone the Repo:**
@@ -29,10 +29,15 @@
    ```bash
    pip install -r requirements.txt
    ```
-   The project only depends on `pynput` for keyboard hooks and `pyTelegramBotAPI` for talking to Telegram.
+   The project depends on `telethon` for the Telegram bot.
 5. **Set Your Config:**
-   - Replace `BOT_TOKEN` with your Telegram bot token in `src/main.py`.
-   - Replace `CHAT_ID` with your target chat ID in `src/main.py`.
+   Set environment variables (PowerShell example):
+   ```powershell
+   $env:TELEGRAM_API_ID="123456"
+   $env:TELEGRAM_API_HASH="your_api_hash"
+   $env:TELEGRAM_BOT_TOKEN="123456:bot_token"
+   $env:TELEGRAM_CHAT_ID="123456789"
+   ```
 6. **Run the Program:**
    ```bash
    python -m src.main
@@ -62,4 +67,4 @@ To bundle the logger into a background Windows executable that runs without a co
 
 ---
 
-**Disclaimer:** This project is intended for educational and ethical purposes only. Unauthorized use, including but not limited to illegal activities, surveillance without consent, or any action that violates laws or personal privacy, is strictly prohibited. The author assumes no responsibility for misuse.
+**Disclaimer:** This project is intended for personal, authorized use only. The author assumes no responsibility for misuse.
